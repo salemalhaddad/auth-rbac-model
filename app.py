@@ -13,7 +13,56 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 # Simulated database
-users_db = {}
+users_db = {
+    "john_doe": {
+        "username": "john_doe",
+        "password": "hashed_password_123",  # This would be a hashed password in real cases
+        "role": "super_admin",  # Role can be 'super_admin', 'chair_csm', 'professor_eng', etc.
+        "department": "Computer Science"
+    },
+    "jane_smith": {
+        "username": "jane_smith",
+        "password": "hashed_password_456",
+        "role": "chair_csm",
+        "department": "Computer Science"
+    },
+    "prof_james": {
+        "username": "prof_james",
+        "password": "hashed_password_789",
+        "role": "professor_csm",
+        "department": "Computer Science"
+    },
+    "assoc_prof_anna": {
+        "username": "assoc_prof_anna",
+        "password": "hashed_password_101",
+        "role": "assoc_prof_csm",
+        "department": "Computer Science"
+    },
+    "ta_luke": {
+        "username": "ta_luke",
+        "password": "hashed_password_112",
+        "role": "ta_csm",
+        "department": "Computer Science"
+    },
+    "ra_emily": {
+        "username": "ra_emily",
+        "password": "hashed_password_131",
+        "role": "ra_csm",
+        "department": "Computer Science"
+    },
+    "student_mike": {
+        "username": "student_mike",
+        "password": "hashed_password_415",
+        "role": "student_csm",
+        "department": "Computer Science"
+    },
+    "student_anna": {
+        "username": "student_anna",
+        "password": "hashed_password_161",
+        "role": "student_eng",
+        "department": "Engineering"
+    }
+}
 failed_attempts = {}
 lockout_duration = timedelta(minutes=15)
 temp_passwords = {}  # Store temporary passwords for first-time logins
