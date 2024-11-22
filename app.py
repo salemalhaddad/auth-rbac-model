@@ -683,6 +683,7 @@ def dashboard():
 def generate_role_features(role: str, department: str) -> str:
     features = []
 
+    # Super Admin
     if role == 'super_admin':
         features = [
             ("User Management", "Manage all users and their roles", "/users"),
@@ -690,19 +691,76 @@ def generate_role_features(role: str, department: str) -> str:
             ("Role Management", "Modify role permissions", "/roles"),
             ("Department Overview", "View all department statistics", "/departments"),
             ("Security Settings", "Configure system security", "/security"),
-            ("Audit Trail", "View system audit logs", "/audit")
+            ("Audit Trail", "View system audit logs", "/audit"),
+            ("Database Backup", "Manage database backups", "/database/backup"),
+            ("System Configuration", "Configure global system settings", "/system/config")
         ]
+
+    # Department Chairs (Chair CSM and Chair ENG)
     elif role.startswith('chair'):
         features = [
             ("Department Staff", f"Manage {department} faculty", "/staff"),
             ("Course Approval", f"Review and approve {department} courses", "/courses/approve"),
             ("Budget Management", f"Manage {department} budget", "/budget"),
-            ("Faculty Evaluation", f"Review {department} faculty", "/evaluations"),
+            ("Faculty Evaluation", f"Review {department} faculty performance", "/evaluations"),
             ("Department Reports", f"View {department} statistics", "/reports"),
             ("Research Projects", f"Oversee {department} research", "/research")
         ]
-    # ... (other role features remain the same)
 
+    # Professors (Professor CSM and Professor ENG)
+    elif role.startswith('professor'):
+        features = [
+            ("Classroom Dashboard", "View and manage class information", "/dashboard"),
+            ("Student Grades", "Enter and review student grades", "/grades"),
+            ("Assignments", "Create and grade assignments", "/assignments"),
+            ("Course Materials", "Upload and manage course materials", "/materials"),
+            ("Student Attendance", "Track and manage student attendance", "/attendance"),
+            ("Communication Tools", "Send announcements and communicate with students", "/communication"),
+            ("Exam Scheduling", "Schedule and manage exams", "/exams")
+        ]
+
+    # Associate Professors (Assoc Prof CSM and Assoc Prof ENG)
+    elif role.startswith('assoc_prof'):
+        features = [
+            ("Classroom Dashboard", "View and manage class information", "/dashboard"),
+            ("Student Grades", "Enter and review student grades", "/grades"),
+            ("Assignments", "Create and grade assignments", "/assignments"),
+            ("Course Materials", "Upload and manage course materials", "/materials"),
+            ("Student Attendance", "Track and manage student attendance", "/attendance"),
+            ("Communication Tools", "Send announcements and communicate with students", "/communication")
+        ]
+
+    # Teaching Assistants (TA CSM and TA ENG)
+    elif role.startswith('ta'):
+        features = [
+            ("Grading Dashboard", "Assist with grading student assignments", "/grades"),
+            ("Student Communication", "Communicate with students regarding assignments", "/communication"),
+            ("Course Materials", "Access and review course materials", "/materials"),
+            ("Assignment Submissions", "Review student submissions and provide feedback", "/assignments/review")
+        ]
+
+    # Research Assistants (RA CSM and RA ENG)
+    elif role.startswith('ra'):
+        features = [
+            ("Research Projects", "Assist with ongoing research projects", "/research"),
+            ("Data Collection", "Collect and manage research data", "/research/data"),
+            ("Research Collaboration", "Collaborate with other researchers", "/research/collaboration"),
+            ("Research Reports", "Prepare and submit research findings", "/research/reports")
+        ]
+
+    # Students (Student CSM and Student ENG)
+    elif role.startswith('student'):
+        features = [
+            ("Course Enrollment", "Enroll in available courses", "/enroll"),
+            ("View Grades", "View your grades and performance", "/grades/view"),
+            ("Assignments", "View and submit assignments", "/assignments/view"),
+            ("Course Materials", "Access course materials uploaded by instructors", "/materials/view"),
+            ("Course Calendar", "Check your course schedule and deadlines", "/calendar"),
+            ("Communication", "Communicate with professors and peers", "/communication"),
+            ("Exams", "View and take exams", "/exams/take")
+        ]
+
+    # Generate HTML output for features
     return "".join([f"""
         <div class="feature-card">
             <h3>{title}</h3>
@@ -710,6 +768,7 @@ def generate_role_features(role: str, department: str) -> str:
             <a href="{link}" class="button">Access</a>
         </div>
     """ for title, description, link in features])
+
 
 # Add example feature routes
 @app.route('/courses')
@@ -1109,4 +1168,4 @@ def get_grades_by_role(role: str, department: str) -> str:
 if __name__ == '__main__':
     print("Starting Flask application...")
     print("Visit http://127.0.0.1:8080 in your browser")
-    app.run(debug=True, host='127.0.0.1', port=8080) 
+    app.run(debug=True, host='127.0.0.1', port=8080)
