@@ -12,57 +12,60 @@ import jwt
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-# Simulated database
+import bcrypt
+
 users_db = {
     "john_doe": {
         "username": "john_doe",
-        "password": "hashed_password_123",  # This would be a hashed password in real cases
-        "role": "super_admin",  # Role can be 'super_admin', 'chair_csm', 'professor_eng', etc.
+        "password": bcrypt.hashpw("password_123".encode('utf-8'), bcrypt.gensalt()),  # Storing hashed password as bytes
+        "role": "super_admin",
         "department": "Computer Science"
     },
     "jane_smith": {
         "username": "jane_smith",
-        "password": "hashed_password_456",
+        "password": bcrypt.hashpw("password_456".encode('utf-8'), bcrypt.gensalt()),  # Storing hashed password as bytes
         "role": "chair_csm",
         "department": "Computer Science"
     },
     "prof_james": {
         "username": "prof_james",
-        "password": "hashed_password_789",
+        "password": bcrypt.hashpw("password_789".encode('utf-8'), bcrypt.gensalt()),  # Storing hashed password as bytes
         "role": "professor_csm",
         "department": "Computer Science"
     },
     "assoc_prof_anna": {
         "username": "assoc_prof_anna",
-        "password": "hashed_password_101",
+        "password": bcrypt.hashpw("password_101".encode('utf-8'), bcrypt.gensalt()),  # Storing hashed password as bytes
         "role": "assoc_prof_csm",
         "department": "Computer Science"
     },
     "ta_luke": {
         "username": "ta_luke",
-        "password": "hashed_password_112",
+        "password": bcrypt.hashpw("password_112".encode('utf-8'), bcrypt.gensalt()),  # Storing hashed password as bytes
         "role": "ta_csm",
         "department": "Computer Science"
     },
     "ra_emily": {
         "username": "ra_emily",
-        "password": "hashed_password_131",
+        "password": bcrypt.hashpw("password_131".encode('utf-8'), bcrypt.gensalt()),  # Storing hashed password as bytes
         "role": "ra_csm",
         "department": "Computer Science"
     },
     "student_mike": {
         "username": "student_mike",
-        "password": "hashed_password_415",
+        "password": bcrypt.hashpw("password_415".encode('utf-8'), bcrypt.gensalt()),  # Storing hashed password as bytes
         "role": "student_csm",
         "department": "Computer Science"
     },
     "student_anna": {
         "username": "student_anna",
-        "password": "hashed_password_161",
+        "password": bcrypt.hashpw("password_161".encode('utf-8'), bcrypt.gensalt()),  # Storing hashed password as bytes
         "role": "student_eng",
         "department": "Engineering"
     }
 }
+
+
 failed_attempts = {}
 lockout_duration = timedelta(minutes=15)
 temp_passwords = {}  # Store temporary passwords for first-time logins
