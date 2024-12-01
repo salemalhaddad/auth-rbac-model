@@ -732,6 +732,253 @@ def dashboard():
     </html>
     """
 
+# Department Chair Features (Chair CSM and Chair ENG)
+@app.route('/staff')
+def manage_staff():
+    # Ensure the user is a chair and has the right permissions
+    if 'role' in session and session['role'].startswith('chair'):
+        # Inline HTML for managing staff
+        return """
+        <html>
+            <head><title>Manage Staff</title></head>
+            <body>
+                <!-- Staff management content -->
+                <h1>Manage Department Staff</h1>
+                <!-- Add more HTML for managing staff here -->
+            </body>
+        </html>
+        """
+    else:
+        return "Access Denied", 403
+
+@app.route('/courses/approve')
+def approve_courses():
+    # Ensure the user is a chair and has the right permissions
+    if 'role' in session and session['role'].startswith('chair'):
+        # Inline HTML for approving courses
+        return """
+        <html>
+            <head><title>Approve Courses</title></head>
+            <body>
+                <!-- Course approval content -->
+                <h1>Approve Department Courses</h1>
+                <!-- Add more HTML for approving courses here -->
+            </body>
+        </html>
+        """
+    else:
+        return "Access Denied", 403
+
+@app.route('/budget')
+def manage_budget():
+    # Ensure the user is a chair and has the right permissions
+    if 'role' in session and session['role'].startswith('chair'):
+        # Inline HTML for managing budget
+        return """
+        <html>
+            <head><title>Manage Budget</title></head>
+            <body>
+                <!-- Budget management content -->
+                <h1>Manage Department Budget</h1>
+                <!-- Add more HTML for managing budget here -->
+            </body>
+        </html>
+        """
+    else:
+        return "Access Denied", 403
+
+@app.route('/evaluations')
+def faculty_evaluation():
+    # Ensure the user is a chair and has the right permissions
+    if 'role' in session and session['role'].startswith('chair'):
+        # Inline HTML for faculty evaluations
+        return """
+        <html>
+            <head><title>Faculty Evaluations</title></head>
+            <body>
+                <!-- Faculty evaluation content -->
+                <h1>Review Faculty Performance</h1>
+                <!-- Add more HTML for faculty evaluations here -->
+            </body>
+        </html>
+        """
+    else:
+        return "Access Denied", 403
+
+@app.route('/reports')
+def department_reports():
+    # Ensure the user is a chair and has the right permissions
+    if 'role' in session and session['role'].startswith('chair'):
+        # Inline HTML for department reports
+        return """
+        <html>
+            <head><title>Department Reports</title></head>
+            <body>
+                <!-- Department reports content -->
+                <h1>View Department Statistics</h1>
+                <!-- Add more HTML for department reports here -->
+            </body>
+        </html>
+        """
+    else:
+        return "Access Denied", 403
+
+@app.route('/research')
+def oversee_research():
+    # Ensure the user is a chair and has the right permissions
+    if 'role' in session and session['role'].startswith('chair'):
+        # Inline HTML for overseeing research
+        return """
+        <html>
+            <head><title>Oversee Research</title></head>
+            <body>
+                <!-- Research oversight content -->
+                <h1>Oversee Department Research Projects</h1>
+                <!-- Add more HTML for overseeing research here -->
+            </body>
+        </html>
+        """
+    else:
+        return "Access Denied", 403
+
+# Student Features (Student CSM and Student ENG)
+@app.route('/enroll')
+def course_enrollment():
+    # Ensure the user is a student
+    if 'role' in session and session['role'].startswith('student'):
+        # Inline HTML for course enrollment with Bootstrap classes
+        return """
+        <html>
+            <head>
+                <title>Course Enrollment</title>
+                <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+            </head>
+            <body class="bg-light">
+                <div class="container mt-5">
+                    <h1 class="mb-4">Enroll in Courses</h1>
+                    <!-- Enrollment form or list of courses to enroll in -->
+                    <!-- Add more HTML for course enrollment here -->
+                    <div class="list-group">
+                        <!-- Dynamically list courses here -->
+                        <a href="#" class="list-group-item list-group-item-action">Course 1</a>
+                        <a href="#" class="list-group-item list-group-item-action">Course 2</a>
+                        <!-- More courses -->
+                    </div>
+                </div>
+            </body>
+        </html>
+        """
+    else:
+        return "Access Denied", 403
+
+@app.route('/grades/view')
+def view_grades():
+    # Ensure the user is a student
+    if 'role' in session and session['role'].startswith('student'):
+        # Inline HTML for viewing grades
+        return """
+        <html>
+            <head><title>View Grades</title></head>
+            <body>
+                <h1>Your Grades</h1>
+                <!-- Table or list of grades -->
+                <!-- Add more HTML for viewing grades here -->
+            </body>
+        </html>
+        """
+    else:
+        return "Access Denied", 403
+
+@app.route('/assignments/view')
+def view_assignments():
+    # Ensure the user is a student
+    if 'role' in session and session['role'].startswith('student'):
+        # Inline HTML for viewing assignments
+        return """
+        <html>
+            <head><title>View Assignments</title></head>
+            <body>
+                <h1>Upcoming Assignments</h1>
+                <!-- List of assignments -->
+                <!-- Add more HTML for viewing assignments here -->
+            </body>
+        </html>
+        """
+    else:
+        return "Access Denied", 403
+
+@app.route('/materials/view')
+def access_course_materials():
+    # Ensure the user is a student
+    if 'role' in session and session['role'].startswith('student'):
+        # Inline HTML for accessing course materials
+        return """
+        <html>
+            <head><title>Course Materials</title></head>
+            <body>
+                <h1>Course Materials</h1>
+                <!-- List of materials or links to download -->
+                <!-- Add more HTML for accessing course materials here -->
+            </body>
+        </html>
+        """
+    else:
+        return "Access Denied", 403
+
+@app.route('/calendar')
+def course_calendar():
+    # Ensure the user is a student
+    if 'role' in session and session['role'].startswith('student'):
+        # Inline HTML for the course calendar
+        return """
+        <html>
+            <head><title>Course Calendar</title></head>
+            <body>
+                <h1>Course Schedule and Deadlines</h1>
+                <!-- Calendar or list of important dates -->
+                <!-- Add more HTML for the course calendar here -->
+            </body>
+        </html>
+        """
+    else:
+        return "Access Denied", 403
+
+@app.route('/communication')
+def student_communication():
+    # Ensure the user is a student
+    if 'role' in session and session['role'].startswith('student'):
+        # Inline HTML for communication
+        return """
+        <html>
+            <head><title>Communication</title></head>
+            <body>
+                <h1>Communicate with Professors and Peers</h1>
+                <!-- Communication tools or forums -->
+                <!-- Add more HTML for communication here -->
+            </body>
+        </html>
+        """
+    else:
+        return "Access Denied", 403
+
+@app.route('/exams/take')
+def take_exams():
+    # Ensure the user is a student
+    if 'role' in session and session['role'].startswith('student'):
+        # Inline HTML for taking exams
+        return """
+        <html>
+            <head><title>Exams</title></head>
+            # <body>
+                <h1>Take Exams</h1>
+                <!-- List of available exams or exam instructions -->
+                <!-- Add more HTML for taking exams here -->
+            </body>
+        </html>
+        """
+    else:
+        return "Access Denied", 403
+
 def generate_role_features(role: str, department: str) -> str:
     features = []
 
