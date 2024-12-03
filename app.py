@@ -8,63 +8,18 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import hashes
 import jwt
+import sqlite3
+import json
+from cryptography.hazmat.primitives import serialization
+import re
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 import bcrypt
 
-users_db = {
-    "john_doe": {
-        "username": "john_doe",
-        "password": bcrypt.hashpw("password_123".encode('utf-8'), bcrypt.gensalt()),  # Storing hashed password as bytes
-        "role": "super_admin",
-        "department": "Computer Science"
-    },
-    "jane_smith": {
-        "username": "jane_smith",
-        "password": bcrypt.hashpw("password_456".encode('utf-8'), bcrypt.gensalt()),  # Storing hashed password as bytes
-        "role": "chair_csm",
-        "department": "Computer Science"
-    },
-    "prof_james": {
-        "username": "prof_james",
-        "password": bcrypt.hashpw("password_789".encode('utf-8'), bcrypt.gensalt()),  # Storing hashed password as bytes
-        "role": "professor_csm",
-        "department": "Computer Science"
-    },
-    "assoc_prof_anna": {
-        "username": "assoc_prof_anna",
-        "password": bcrypt.hashpw("password_101".encode('utf-8'), bcrypt.gensalt()),  # Storing hashed password as bytes
-        "role": "assoc_prof_csm",
-        "department": "Computer Science"
-    },
-    "ta_luke": {
-        "username": "ta_luke",
-        "password": bcrypt.hashpw("password_112".encode('utf-8'), bcrypt.gensalt()),  # Storing hashed password as bytes
-        "role": "ta_csm",
-        "department": "Computer Science"
-    },
-    "ra_emily": {
-        "username": "ra_emily",
-        "password": bcrypt.hashpw("password_131".encode('utf-8'), bcrypt.gensalt()),  # Storing hashed password as bytes
-        "role": "ra_csm",
-        "department": "Computer Science"
-    },
-    "student_mike": {
-        "username": "student_mike",
-        "password": bcrypt.hashpw("password_415".encode('utf-8'), bcrypt.gensalt()),  # Storing hashed password as bytes
-        "role": "student_csm",
-        "department": "Computer Science"
-    },
-    "student_anna": {
-        "username": "student_anna",
-        "password": bcrypt.hashpw("password_161".encode('utf-8'), bcrypt.gensalt()),  # Storing hashed password as bytes
-        "role": "student_eng",
-        "department": "Engineering"
-    }
-}
-
+# Empty dictionary for runtime storage if needed
+users_db = {}
 
 failed_attempts = {}
 lockout_duration = timedelta(minutes=15)
@@ -236,6 +191,246 @@ def is_account_locked(username):
             return True
     return False
 
+# Initialize department-specific encryption
+class DepartmentEncryption:
+    def __init__(self):
+        # Check if keys exist in files, if not create and save them
+        try:
+            with open('csm_key.key', 'rb') as f:
+                self.csm_key = f.read()
+        except FileNotFoundError:
+            self.csm_key = Fernet.generate_key()
+            with open('csm_key.key', 'wb') as f:
+                f.write(self.csm_key)
+        
+        self.csm_cipher = Fernet(self.csm_key)
+        
+        # ENG department uses RSA
+        try:
+            with open('eng_private.key', 'rb') as f:
+                self.eng_private_key = serialization.load_pem_private_key(
+                    f.read(),
+                    password=None
+                )
+            with open('eng_public.key', 'rb') as f:
+                self.eng_public_key = serialization.load_pem_public_key(
+                    f.read()
+                )
+        except FileNotFoundError:
+            self.eng_private_key = rsa.generate_private_key(
+                public_exponent=65537,
+                key_size=2048
+            )
+            self.eng_public_key = self.eng_private_key.public_key()
+            
+            # Save the keys
+            pem_private = self.eng_private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption()
+            )
+            pem_public = self.eng_public_key.public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
+            )
+            
+            with open('eng_private.key', 'wb') as f:
+                f.write(pem_private)
+            with open('eng_public.key', 'wb') as f:
+                f.write(pem_public)
+    
+    def encrypt_data(self, data: dict, department: str) -> dict:
+        serialized = json.dumps(data).encode()
+        if department == 'Computer Science':
+            return {
+                'encrypted': self.csm_cipher.encrypt(serialized).decode(),
+                'method': 'AES'
+            }
+        elif department == 'Engineering':
+            encrypted = self.eng_public_key.encrypt(
+                serialized,
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None
+                )
+            )
+            return {
+                'encrypted': encrypted,
+                'method': 'RSA'
+            }
+        return data  # For other departments, no encryption
+    
+    def decrypt_data(self, encrypted_data: dict) -> dict:
+        if not isinstance(encrypted_data, dict) or 'encrypted' not in encrypted_data:
+            return encrypted_data
+            
+        if encrypted_data.get('method') == 'AES':
+            decrypted = self.csm_cipher.decrypt(encrypted_data['encrypted'].encode())
+            return json.loads(decrypted)
+        elif encrypted_data.get('method') == 'RSA':
+            decrypted = self.eng_private_key.decrypt(
+                encrypted_data['encrypted'],
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None
+                )
+            )
+            return json.loads(decrypted)
+        return encrypted_data
+
+# Initialize database
+def init_db():
+    conn = sqlite3.connect('university.db')
+    c = conn.cursor()
+    
+    # Create users table if it doesn't exist
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            encrypted_data BLOB,
+            encryption_method TEXT
+        )
+    ''')
+    
+    # Add default users only if the table is empty
+    c.execute('SELECT COUNT(*) FROM users')
+    if c.fetchone()[0] == 0:
+        default_users = [
+            {
+                "username": "john_doe",
+                "password": "SuperSecure123!@#",  # Default password
+                "role": "super_admin",
+                "department": "Computer Science"
+            },
+            {
+                "username": "jane_smith",
+                "password": "ChairSecure456!@#",
+                "role": "chair_csm",
+                "department": "Computer Science"
+            },
+            {
+                "username": "prof_james",
+                "password": "ProfSecure789!@#",
+                "role": "professor_csm",
+                "department": "Computer Science"
+            },
+            {
+                "username": "assoc_prof_anna",
+                "password": "AssocSecure101!@#",
+                "role": "assoc_prof_csm",
+                "department": "Computer Science"
+            },
+            {
+                "username": "ta_luke",
+                "password": "TASecure112!@#",
+                "role": "ta_csm",
+                "department": "Computer Science"
+            },
+            {
+                "username": "ra_emily",
+                "password": "RASecure131!@#",
+                "role": "ra_csm",
+                "department": "Computer Science"
+            },
+            {
+                "username": "student_mike",
+                "password": "StudentSecure415!@#",
+                "role": "student_csm",
+                "department": "Computer Science"
+            },
+            {
+                "username": "student_anna",
+                "password": "StudentSecure161!@#",
+                "role": "student_eng",
+                "department": "Engineering"
+            }
+        ]
+        
+        # Insert default users with proper encryption
+        for user in default_users:
+            # Hash the password
+            hashed_password = bcrypt.hashpw(
+                user['password'].encode('utf-8'), 
+                bcrypt.gensalt()
+            ).decode()  # Store as string
+
+            # Create user data dictionary
+            user_data = {
+                'username': user['username'],
+                'password': hashed_password,
+                'role': user['role'],
+                'department': user['department']
+            }
+
+            # Encrypt the user data based on department
+            encrypted_data = dept_encryption.encrypt_data(user_data, user['department'])
+
+            # Store in database (store encrypted data as BLOB)
+            c.execute('''
+                INSERT OR REPLACE INTO users (username, encrypted_data, encryption_method) 
+                VALUES (?, ?, ?)
+            ''', (user['username'], encrypted_data['encrypted'], encrypted_data['method']))
+            
+            print(f"Created default user: {user['username']} with role {user['role']}")
+            print(f"Default password for {user['username']}: {user['password']}")
+    
+    conn.commit()
+    conn.close()
+
+# Initialize encryption system
+dept_encryption = DepartmentEncryption()
+
+# Modified user database operations
+def save_user_to_db(username: str, user_data: dict):
+    encrypted_data = dept_encryption.encrypt_data(user_data, user_data.get('department', ''))
+    conn = sqlite3.connect('university.db')
+    c = conn.cursor()
+    c.execute('''
+        INSERT OR REPLACE INTO users (username, encrypted_data, encryption_method) 
+        VALUES (?, ?, ?)
+    ''', (username, encrypted_data['encrypted'], encrypted_data['method']))
+    conn.commit()
+    conn.close()
+
+def get_user_from_db(username: str) -> dict:
+    conn = sqlite3.connect('university.db')
+    c = conn.cursor()
+    c.execute('SELECT encrypted_data, encryption_method FROM users WHERE username = ?', (username,))
+    result = c.fetchone()
+    conn.close()
+    
+    if result:
+        encrypted_data, method = result
+        
+        try:
+            # Decrypt based on method (encrypted_data is already bytes)
+            if method == 'AES':
+                decrypted = dept_encryption.csm_cipher.decrypt(encrypted_data)
+            elif method == 'RSA':
+                decrypted = dept_encryption.eng_private_key.decrypt(
+                    encrypted_data,
+                    padding.OAEP(
+                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                        algorithm=hashes.SHA256(),
+                        label=None
+                    )
+                )
+            else:
+                return None
+                
+            # Parse the decrypted JSON
+            user_data = json.loads(decrypted)
+            print(f"Decrypted user data: {user_data}")  # Debug print
+            return user_data
+            
+        except Exception as e:
+            print(f"Decryption error: {e}")  # Debug print
+            return None
+            
+    return None
+
 @app.route('/')
 def index():
     return """
@@ -314,74 +509,85 @@ def index():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    if request.method == 'GET':
+        # Generate new CSRF token for the form
+        session['csrf_token'] = os.urandom(32).hex()
+
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
 
-        if username in users_db:
-            if is_account_locked(username):
-                return "Account is locked. Please try again later."
+        # Rate limiting check
+        if is_account_locked(username):
+            return "Account is locked. Please try again later."
 
-            stored_password = users_db[username]['password']
-
-            # Check if user needs to change password
-            if username in temp_passwords:
-                if password == temp_passwords[username]:
-                    return redirect(url_for('change_password', username=username))
+        user_data = get_user_from_db(username)
+        
+        if user_data:
+            stored_password = user_data['password'].encode('utf-8')
 
             if bcrypt.checkpw(password.encode('utf-8'), stored_password):
+                # Set session data
                 session['username'] = username
-                session['role'] = users_db[username]['role']
-                session['department'] = users_db[username].get('department', 'None')
-                session['expires_at'] = (datetime.now() + timedelta(minutes=30)).isoformat()  # Add session expiration
+                session['role'] = user_data['role']
+                session['department'] = user_data.get('department', 'None')
+                session['expires_at'] = (datetime.now() + timedelta(minutes=30)).isoformat()
+                session['csrf_token'] = os.urandom(32).hex()
 
                 if username in failed_attempts:
                     del failed_attempts[username]
 
+                # Log successful login
+                print(f"Successful login: {username} at {datetime.now()}")
+                
                 return redirect('/dashboard')
             else:
+                # Handle failed login
                 if username not in failed_attempts:
                     failed_attempts[username] = [1, datetime.now() + lockout_duration]
                 else:
                     attempts, lockout_time = failed_attempts[username]
                     failed_attempts[username] = [attempts + 1, datetime.now() + lockout_duration]
-
+                
+                # Log failed attempt
+                print(f"Failed login attempt: {username} at {datetime.now()}")
+                
                 return "Invalid credentials"
         return "Invalid credentials"
 
-    return """
+    return f"""
     <html>
         <head>
             <title>Login - Secure App</title>
             <style>
-                body {
+                body {{
                     font-family: Arial;
                     margin: 40px;
                     background: #f0f0f0;
-                }
-                .container {
+                }}
+                .container {{
                     background: white;
                     padding: 20px;
                     border-radius: 8px;
                     box-shadow: 0 0 10px rgba(0,0,0,0.1);
                     max-width: 400px;
                     margin: 0 auto;
-                }
-                .form-group {
+                }}
+                .form-group {{
                     margin-bottom: 15px;
-                }
-                label {
+                }}
+                label {{
                     display: block;
                     margin-bottom: 5px;
-                }
-                input {
+                }}
+                input {{
                     width: 100%;
                     padding: 8px;
                     border: 1px solid #ddd;
                     border-radius: 4px;
                     box-sizing: border-box;
-                }
-                button {
+                }}
+                button {{
                     background: #007bff;
                     color: white;
                     padding: 8px 15px;
@@ -389,16 +595,17 @@ def login():
                     border-radius: 4px;
                     cursor: pointer;
                     width: 100%;
-                }
-                button:hover {
+                }}
+                button:hover {{
                     background: #0056b3;
-                }
+                }}
             </style>
         </head>
         <body>
             <div class="container">
                 <h1>Login</h1>
                 <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{session.get('csrf_token', '')}">
                     <div class="form-group">
                         <label>Username:</label>
                         <input type="text" name="username" required>
@@ -413,6 +620,7 @@ def login():
         </body>
     </html>
     """
+
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
@@ -421,57 +629,22 @@ def register():
         role = request.form.get('role')
         department = request.form.get('department')
 
-        if username in users_db:
-            return """
-                <html>
-                    <head><title>Error</title></head>
-                    <body>
-                        <div class="container">
-                            <p class="error">Username already exists</p>
-                            <a href="/register">Try Again</a>
-                        </div>
-                    </body>
-                </html>
-            """
+        if get_user_from_db(username):
+            return "Username already exists!"
 
-        # Password strength check
         if len(password) < 12:
-            return """
-                <html>
-                    <head><title>Error</title></head>
-                    <body>
-                        <div class="container">
-                            <p class="error">Password must be at least 12 characters long</p>
-                            <a href="/register">Try Again</a>
-                        </div>
-                    </body>
-                </html>
-            """
+            return "Password must be at least 12 characters long!"
 
-        # Hash password with bcrypt
         hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-
-        # Create role key based on department
-        role_key = f"{role}_{department.lower()}"
-        if role_key not in rbac_system.roles:
-            return """
-                <html>
-                    <head><title>Error</title></head>
-                    <body>
-                        <div class="container">
-                            <p class="error">Invalid role/department combination</p>
-                            <a href="/register">Try Again</a>
-                        </div>
-                    </body>
-                </html>
-            """
-
-        users_db[username] = {
-            'password': hashed,
-            'role': role_key,
+        
+        user_data = {
+            'username': username,
+            'password': hashed.decode(),  # Convert bytes to string for JSON serialization
+            'role': f"{role}_{department.lower()}",
             'department': department
         }
-
+        
+        save_user_to_db(username, user_data)
         return redirect('/login')
 
     return """
@@ -912,7 +1085,7 @@ def take_exams():
         return """
         <html>
             <head><title>Exams</title></head>
-            # <body>
+            <body>
                 <h1>Take Exams</h1>
                 <!-- List of available exams or exam instructions -->
                 <!-- Add more HTML for taking exams here -->
@@ -1136,19 +1309,23 @@ def manage_users():
         new_department = request.form.get('department')
 
         if new_username and new_role:
-            if new_username in users_db:
+            if get_user_from_db(new_username):
                 return "Username already exists!"
 
             # Generate temporary password
             temp_password = os.urandom(8).hex()
             temp_passwords[new_username] = temp_password
 
-            # Store empty password hash initially
-            users_db[new_username] = {
-                'password': bcrypt.hashpw(temp_password.encode('utf-8'), bcrypt.gensalt()),
+            # Create user data
+            user_data = {
+                'username': new_username,
+                'password': bcrypt.hashpw(temp_password.encode('utf-8'), bcrypt.gensalt()).decode(),
                 'role': new_role,
                 'department': new_department
             }
+
+            # Save to database
+            save_user_to_db(new_username, user_data)
 
             return f"""
             <html>
@@ -1164,22 +1341,47 @@ def manage_users():
             </html>
             """
 
-    # Generate current users table
+    # Fetch all users from database
+    conn = sqlite3.connect('university.db')
+    c = conn.cursor()
+    c.execute('SELECT username, encrypted_data, encryption_method FROM users')
+    all_users = c.fetchall()
+    conn.close()
+
+    # Generate users table
     users_table = ""
-    for username, data in users_db.items():
-        users_table += f"""
-            <tr>
-                <td>{username}</td>
-                <td>{data['role']}</td>
-                <td>{data.get('department', 'N/A')}</td>
-                <td>
-                    <form method="POST" action="/delete_user" style="display: inline;">
-                        <input type="hidden" name="username" value="{username}">
-                        <button type="submit" class="delete-btn">Delete</button>
-                    </form>
-                </td>
-            </tr>
-        """
+    for username, encrypted_data, method in all_users:
+        try:
+            # Decrypt user data
+            if method == 'AES':
+                decrypted = dept_encryption.csm_cipher.decrypt(encrypted_data)
+            elif method == 'RSA':
+                decrypted = dept_encryption.eng_private_key.decrypt(
+                    encrypted_data,
+                    padding.OAEP(
+                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                        algorithm=hashes.SHA256(),
+                        label=None
+                    )
+                )
+            user_data = json.loads(decrypted)
+            
+            users_table += f"""
+                <tr>
+                    <td>{user_data['username']}</td>
+                    <td>{user_data['role']}</td>
+                    <td>{user_data.get('department', 'N/A')}</td>
+                    <td>
+                        <form method="POST" action="/delete_user" style="display: inline;">
+                            <input type="hidden" name="username" value="{user_data['username']}">
+                            <button type="submit" class="delete-btn">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+            """
+        except Exception as e:
+            print(f"Error decrypting user data: {e}")
+            continue
 
     return f"""
     <html>
@@ -1272,11 +1474,8 @@ def manage_users():
                     <div class="form-group">
                         <label>Department:</label>
                         <select name="department" required>
-                            <option value="CSM">Computer Science and Mathematics</option>
-                            <option value="ENG">Engineering</option>
-                            <option value="BUS">Business</option>
-                            <option value="SCI">Sciences</option>
-                            <option value="HUM">Humanities</option>
+                            <option value="Computer Science">Computer Science</option>
+                            <option value="Engineering">Engineering</option>
                         </select>
                     </div>
                     <button type="submit">Add User</button>
@@ -1406,6 +1605,154 @@ def get_grades_by_role(role: str, department: str) -> str:
             </table>
         """
     return "<p>No grades available.</p>"
+
+@app.route('/change_password', methods=['GET', 'POST'])
+def change_password():
+    username = request.args.get('username')
+    
+    if request.method == 'POST':
+        new_password = request.form.get('new_password')
+        confirm_password = request.form.get('confirm_password')
+        
+        if new_password != confirm_password:
+            return "Passwords do not match!"
+            
+        if len(new_password) < 12:
+            return "Password must be at least 12 characters long!"
+            
+        # Update the password in the database
+        hashed = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt())
+        users_db[username]['password'] = hashed
+        
+        # Remove temporary password
+        if username in temp_passwords:
+            del temp_passwords[username]
+            
+        # Log the user in
+        session['username'] = username
+        session['role'] = users_db[username]['role']
+        session['department'] = users_db[username].get('department', 'None')
+        
+        return redirect('/dashboard')
+        
+    return """
+    <html>
+        <head>
+            <title>Change Password - Secure App</title>
+            <style>
+                body { 
+                    font-family: Arial; 
+                    margin: 40px; 
+                    background: #f0f0f0;
+                }
+                .container {
+                    background: white;
+                    padding: 20px;
+                    border-radius: 8px;
+                    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+                    max-width: 400px;
+                    margin: 0 auto;
+                }
+                .form-group {
+                    margin-bottom: 15px;
+                }
+                label {
+                    display: block;
+                    margin-bottom: 5px;
+                }
+                input {
+                    width: 100%;
+                    padding: 8px;
+                    border: 1px solid #ddd;
+                    border-radius: 4px;
+                    box-sizing: border-box;
+                }
+                button {
+                    background: #007bff;
+                    color: white;
+                    padding: 8px 15px;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    width: 100%;
+                }
+                button:hover {
+                    background: #0056b3;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>Change Password</h1>
+                <p>Please set your new password</p>
+                <form method="POST">
+                    <div class="form-group">
+                        <label>New Password:</label>
+                        <input type="password" name="new_password" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Confirm Password:</label>
+                        <input type="password" name="confirm_password" required>
+                    </div>
+                    <button type="submit">Change Password</button>
+                </form>
+            </div>
+        </body>
+    </html>
+    """
+
+# Add password complexity validation
+def is_password_complex(password: str) -> bool:
+    """
+    Password must:
+    - Be at least 12 characters long
+    - Contain at least one uppercase letter
+    - Contain at least one lowercase letter
+    - Contain at least one number
+    - Contain at least one special character
+    """
+    if len(password) < 12:
+        return False
+    if not re.search(r"[A-Z]", password):
+        return False
+    if not re.search(r"[a-z]", password):
+        return False
+    if not re.search(r"\d", password):
+        return False
+    if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
+        return False
+    return True
+
+# Add session timeout check
+def is_session_valid():
+    if 'expires_at' not in session:
+        return False
+    expires_at = datetime.fromisoformat(session['expires_at'])
+    return datetime.now() < expires_at
+
+# Add session refresh
+def refresh_session():
+    session['expires_at'] = (datetime.now() + timedelta(minutes=30)).isoformat()
+
+# Add CSRF protection middleware
+@app.before_request
+def csrf_protect():
+    if request.method == "POST" and request.path != '/login':
+        token = session.get('csrf_token', None)
+        if not token or token != request.form.get('csrf_token'):
+            return "CSRF token validation failed", 400
+
+# Add session validation middleware
+@app.before_request
+def validate_session():
+    if 'username' in session:
+        if not is_session_valid():
+            session.clear()
+            return redirect('/login')
+        refresh_session()
+
+# Initialize the database when the application starts
+init_db()
 
 if __name__ == '__main__':
     print("Starting Flask application...")
