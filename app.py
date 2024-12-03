@@ -333,6 +333,7 @@ def login():
                 session['username'] = username
                 session['role'] = users_db[username]['role']
                 session['department'] = users_db[username].get('department', 'None')
+                session['expires_at'] = (datetime.now() + timedelta(minutes=30)).isoformat()  # Add session expiration
 
                 if username in failed_attempts:
                     del failed_attempts[username]
@@ -412,64 +413,6 @@ def login():
         </body>
     </html>
     """
-
-@app.route('/change_password', methods=['GET', 'POST'])
-def change_password():
-    username = request.args.get('username')
-
-    if request.method == 'POST':
-        new_password = request.form.get('new_password')
-        confirm_password = request.form.get('confirm_password')
-
-        if new_password != confirm_password:
-            return "Passwords do not match!"
-
-        if len(new_password) < 12:
-            return "Password must be at least 12 characters long!"
-
-        # Update the password in the database
-        hashed = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt())
-        users_db[username]['password'] = hashed
-
-        # Remove temporary password
-        if username in temp_passwords:
-            del temp_passwords[username]
-
-        # Log the user in
-        session['username'] = username
-        session['role'] = users_db[username]['role']
-        session['department'] = users_db[username].get('department', 'None')
-
-        return redirect('/dashboard')
-
-    return """
-    <html>
-        <head>
-            <title>Change Password - Secure App</title>
-            <style>
-                /* ... (same styles as login page) ... */
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h1>Change Password</h1>
-                <p>Please set your new password</p>
-                <form method="POST">
-                    <div class="form-group">
-                        <label>New Password:</label>
-                        <input type="password" name="new_password" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Confirm Password:</label>
-                        <input type="password" name="confirm_password" required>
-                    </div>
-                    <button type="submit">Change Password</button>
-                </form>
-            </div>
-        </body>
-    </html>
-    """
-
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
