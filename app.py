@@ -510,7 +510,6 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'GET':
-        # Generate new CSRF token for the form
         session['csrf_token'] = os.urandom(32).hex()
 
     if request.method == 'POST':
@@ -524,10 +523,15 @@ def login():
         user_data = get_user_from_db(username)
         
         if user_data:
-            stored_password = user_data['password'].encode('utf-8')
+            # Check if this is a temporary password first
+            if username in temp_passwords and temp_passwords[username] == password:
+                # Redirect to change password page
+                return redirect(url_for('change_password', username=username))
 
+            # If not a temp password, check against stored password
+            stored_password = user_data['password'].encode('utf-8')
             if bcrypt.checkpw(password.encode('utf-8'), stored_password):
-                # Set session data
+                # Regular login process
                 session['username'] = username
                 session['role'] = user_data['role']
                 session['department'] = user_data.get('department', 'None')
@@ -537,9 +541,7 @@ def login():
                 if username in failed_attempts:
                     del failed_attempts[username]
 
-                # Log successful login
                 print(f"Successful login: {username} at {datetime.now()}")
-                
                 return redirect('/dashboard')
             else:
                 # Handle failed login
@@ -549,9 +551,7 @@ def login():
                     attempts, lockout_time = failed_attempts[username]
                     failed_attempts[username] = [attempts + 1, datetime.now() + lockout_duration]
                 
-                # Log failed attempt
                 print(f"Failed login attempt: {username} at {datetime.now()}")
-                
                 return "Invalid credentials"
         return "Invalid credentials"
 
@@ -852,20 +852,155 @@ def dashboard():
 @app.route('/staff')
 def manage_staff():
     # Ensure the user is a chair and has the right permissions
-    if 'role' in session and session['role'].startswith('chair'):
-        # Inline HTML for managing staff
-        return """
-        <html>
-            <head><title>Manage Staff</title></head>
-            <body>
-                <!-- Staff management content -->
-                <h1>Manage Department Staff</h1>
-                <!-- Add more HTML for managing staff here -->
-            </body>
-        </html>
-        """
-    else:
+    if 'role' not in session or not session['role'].startswith('chair'):
         return "Access Denied", 403
+
+    department = session.get('department')
+    
+    # Get all users from database
+    conn = sqlite3.connect('university.db')
+    c = conn.cursor()
+    c.execute('SELECT username, encrypted_data, encryption_method FROM users')
+    all_users = c.fetchall()
+    conn.close()
+
+    # Filter and organize staff by role
+    staff_by_role = {
+        'Professors': [],
+        'Associate Professors': [],
+        'Teaching Assistants': [],
+        'Research Assistants': []
+    }
+
+    for username, encrypted_data, method in all_users:
+        try:
+            # Decrypt user data based on encryption method
+            if method == 'AES':
+                decrypted = dept_encryption.csm_cipher.decrypt(encrypted_data)
+            elif method == 'RSA':
+                decrypted = dept_encryption.eng_private_key.decrypt(
+                    encrypted_data,
+                    padding.OAEP(
+                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                        algorithm=hashes.SHA256(),
+                        label=None
+                    )
+                )
+            user_data = json.loads(decrypted)
+            
+            # Only include staff from the chair's department
+            if user_data.get('department') == department:
+                role = user_data.get('role', '')
+                if role.startswith('professor'):
+                    staff_by_role['Professors'].append(user_data)
+                elif role.startswith('assoc_prof'):
+                    staff_by_role['Associate Professors'].append(user_data)
+                elif role.startswith('ta'):
+                    staff_by_role['Teaching Assistants'].append(user_data)
+                elif role.startswith('ra'):
+                    staff_by_role['Research Assistants'].append(user_data)
+        except Exception as e:
+            print(f"Error decrypting user data: {e}")
+            continue
+
+    return f"""
+    <html>
+        <head>
+            <title>Manage Department Staff - {department}</title>
+            <style>
+                body {{
+                    font-family: Arial;
+                    margin: 40px;
+                    background: #f0f0f0;
+                }}
+                .container {{
+                    background: white;
+                    padding: 20px;
+                    border-radius: 8px;
+                    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+                    max-width: 1000px;
+                    margin: 0 auto;
+                }}
+                .staff-section {{
+                    margin-bottom: 30px;
+                }}
+                .staff-grid {{
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+                    gap: 20px;
+                    margin-top: 15px;
+                }}
+                .staff-card {{
+                    background: #f8f9fa;
+                    border-radius: 8px;
+                    padding: 15px;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+                }}
+                .role-title {{
+                    color: #1976d2;
+                    border-bottom: 2px solid #1976d2;
+                    padding-bottom: 5px;
+                    margin-bottom: 15px;
+                }}
+                .button {{
+                    display: inline-block;
+                    background: #1976d2;
+                    color: white;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                    text-decoration: none;
+                    transition: background 0.2s;
+                }}
+                .button:hover {{
+                    background: #1565c0;
+                }}
+                .empty-message {{
+                    color: #666;
+                    font-style: italic;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>Department Staff - {department}</h1>
+                
+                {generate_staff_sections(staff_by_role)}
+                
+                <div style="margin-top: 20px;">
+                    <a href="/dashboard" class="button">Back to Dashboard</a>
+                </div>
+            </div>
+        </body>
+    </html>
+    """
+
+def generate_staff_sections(staff_by_role):
+    html = ""
+    for role_title, staff_list in staff_by_role.items():
+        html += f"""
+            <div class="staff-section">
+                <h2 class="role-title">{role_title}</h2>
+                <div class="staff-grid">
+        """
+        
+        if not staff_list:
+            html += '<p class="empty-message">No staff members in this category</p>'
+        else:
+            for staff in staff_list:
+                html += f"""
+                    <div class="staff-card">
+                        <h3>{staff['username']}</h3>
+                        <p><strong>Role:</strong> {staff['role']}</p>
+                        <p><strong>Department:</strong> {staff['department']}</p>
+                    </div>
+                """
+        
+        html += """
+                </div>
+            </div>
+        """
+    
+    return html
 
 @app.route('/courses/approve')
 def approve_courses():
@@ -1452,6 +1587,7 @@ def manage_users():
                 <h1>User Management</h1>
                 <h2>Add New User</h2>
                 <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{session.get('csrf_token', '')}">
                     <div class="form-group">
                         <label>Username:</label>
                         <input type="text" name="username" required>
@@ -1609,65 +1745,86 @@ def get_grades_by_role(role: str, department: str) -> str:
 @app.route('/change_password', methods=['GET', 'POST'])
 def change_password():
     username = request.args.get('username')
-    
+    if not username:
+        return redirect('/login')
+
     if request.method == 'POST':
         new_password = request.form.get('new_password')
         confirm_password = request.form.get('confirm_password')
+        csrf_token = request.form.get('csrf_token')
+
+        # Validate CSRF token
+        if not csrf_token or csrf_token != session.get('csrf_token'):
+            return "CSRF token validation failed", 400
         
         if new_password != confirm_password:
             return "Passwords do not match!"
             
-        if len(new_password) < 12:
-            return "Password must be at least 12 characters long!"
+        if not is_password_complex(new_password):
+            return """Password must:
+                   <br>- Be at least 12 characters long
+                   <br>- Contain at least one uppercase letter
+                   <br>- Contain at least one lowercase letter
+                   <br>- Contain at least one number
+                   <br>- Contain at least one special character"""
             
         # Update the password in the database
-        hashed = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt())
-        users_db[username]['password'] = hashed
-        
-        # Remove temporary password
-        if username in temp_passwords:
-            del temp_passwords[username]
+        user_data = get_user_from_db(username)
+        if user_data:
+            user_data['password'] = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode()
+            save_user_to_db(username, user_data)
             
-        # Log the user in
-        session['username'] = username
-        session['role'] = users_db[username]['role']
-        session['department'] = users_db[username].get('department', 'None')
+            # Remove temporary password if it exists
+            if username in temp_passwords:
+                del temp_passwords[username]
+            
+            # Set session data
+            session['username'] = username
+            session['role'] = user_data['role']
+            session['department'] = user_data.get('department', 'None')
+            session['expires_at'] = (datetime.now() + timedelta(minutes=30)).isoformat()
+            session['csrf_token'] = os.urandom(32).hex()
+            
+            return redirect('/dashboard')
         
-        return redirect('/dashboard')
+        return "User not found!", 404
+
+    # Generate CSRF token for the form
+    session['csrf_token'] = os.urandom(32).hex()
         
-    return """
+    return f"""
     <html>
         <head>
             <title>Change Password - Secure App</title>
             <style>
-                body { 
+                body {{ 
                     font-family: Arial; 
                     margin: 40px; 
                     background: #f0f0f0;
-                }
-                .container {
+                }}
+                .container {{
                     background: white;
                     padding: 20px;
                     border-radius: 8px;
                     box-shadow: 0 0 10px rgba(0,0,0,0.1);
                     max-width: 400px;
                     margin: 0 auto;
-                }
-                .form-group {
+                }}
+                .form-group {{
                     margin-bottom: 15px;
-                }
-                label {
+                }}
+                label {{
                     display: block;
                     margin-bottom: 5px;
-                }
-                input {
+                }}
+                input {{
                     width: 100%;
                     padding: 8px;
                     border: 1px solid #ddd;
                     border-radius: 4px;
                     box-sizing: border-box;
-                }
-                button {
+                }}
+                button {{
                     background: #007bff;
                     color: white;
                     padding: 8px 15px;
@@ -1675,10 +1832,15 @@ def change_password():
                     border-radius: 4px;
                     cursor: pointer;
                     width: 100%;
-                }
-                button:hover {
+                }}
+                button:hover {{
                     background: #0056b3;
-                }
+                }}
+                .password-requirements {{
+                    font-size: 0.9em;
+                    color: #666;
+                    margin-top: 5px;
+                }}
             </style>
         </head>
         <body>
@@ -1686,9 +1848,20 @@ def change_password():
                 <h1>Change Password</h1>
                 <p>Please set your new password</p>
                 <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{session.get('csrf_token', '')}">
                     <div class="form-group">
                         <label>New Password:</label>
                         <input type="password" name="new_password" required>
+                        <div class="password-requirements">
+                            Password must:
+                            <ul>
+                                <li>Be at least 12 characters long</li>
+                                <li>Contain at least one uppercase letter</li>
+                                <li>Contain at least one lowercase letter</li>
+                                <li>Contain at least one number</li>
+                                <li>Contain at least one special character</li>
+                            </ul>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label>Confirm Password:</label>
